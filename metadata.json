@@ -1,0 +1,8 @@
+{
+  "name": "Nexus Workspace AI",
+  "description": "A multi-modal, multi-user collaborative workspace powered by Gemini. Features project management, calendar integration, knowledge base (RAG), and customizable AI personas.",
+  "requestFramePermissions": [
+    "microphone",
+    "camera"
+  ]
+}
