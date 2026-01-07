@@ -1,125 +1,113 @@
 
-# Project Implementation Report & Architecture Spec
+# Nexus Workspace AI: Production Architecture Spec (Arch 2)
 
 ## Executive Summary
-The Nexus Workspace AI is transitioning from a client-side prototype to a robust **Backend-for-Frontend (BFF)** production architecture. 
-
-**Core Infrastructure Changes:**
-1.  **Memory Layer**: **Mem0 (OpenMemory)** integration for persistent user profiling, fact extraction, and cross-session memory retrieval.
-2.  **RAG Layer**: **txtai** implementation for semantic document search, indexing into **Postgres + pgVector**.
-3.  **Storage**: **Google Cloud SQL (Postgres)** for relational data (Projects, Tasks) and vector storage.
-4.  **Orchestration**: A Node.js/Python backend now handles prompt assembly, removing full-text document injection from the frontend.
+This document defines "Architecture 2", a production-grade infrastructure designed for secure public access via **Cloudflare Tunnels**. It transitions the system from a client-side prototype to a **Backend-for-Frontend (BFF)** pattern using a Python (FastAPI) backend that embeds **Mem0** and coordinates with **txtai**, **Gemini**, and **Cloudflare R2**.
 
 ---
 
-## 1. Production Code Architecture
+## Deliverable A: Backend Service Design
 
-### Data Flow
-```mermaid
-graph TD
-    Client[React Frontend] -->|REST / API| Orchestrator[Backend API]
-    
-    subgraph "Storage & Indexing"
-        Orchestrator -->|Relational Data| PG[Postgres (Cloud SQL)]
-        Orchestrator -->|Vector Search| Txtai[txtai Service]
-        Txtai -->|Embeddings| PGVector[pgVector Extension]
-    end
-    
-    subgraph "Cognitive Services"
-        Orchestrator -->|LLM Generation| Gemini[Google Gemini API]
-        Orchestrator -->|Long-term Memory| Mem0[Mem0 / OpenMemory]
-    end
-    
-    subgraph "External"
-        Orchestrator -->|OAuth/Events| Google[Google Workspace API]
-    end
-```
+### 1. Technology Stack
+*   **Runtime**: Python 3.11+ (FastAPI)
+*   **AI Memory**: Mem0 (Embedded library, storing to Postgres `memories` table)
+*   **Vector Search**: txtai (External microservice via HTTP)
+*   **Storage**: Cloudflare R2 (S3-compatible object storage)
+*   **Database**: PostgreSQL 16 + pgvector
 
-### Frontend Responsibilities (Updated)
-- **Zero-Knowledge RAG**: The frontend sends *Document IDs*, not document content.
-- **Session Management**: Uses HTTP-only cookies managed by the Backend via `/auth` endpoints.
-- **Data Adapter**: `geminiService.ts` acts as the API Client, normalizing backend responses for the UI.
+### 2. Authentication Flow (Google OAuth2)
+We implement the "Authorization Code" flow to keep tokens secure on the server.
+1.  **Frontend**: User clicks "Login". Redirects to `https://api.pcnaid.com/auth/google/start`.
+2.  **Backend**: Generates state, redirects user to Google Accounts.
+3.  **Google**: User consents, redirects to `https://api.pcnaid.com/auth/google/callback?code=...`.
+4.  **Backend**:
+    *   Exchanges `code` for `access_token` and `refresh_token`.
+    *   Encrypts tokens using `ENCRYPTION_KEY` (AES-GCM).
+    *   Upserts user in `users` table.
+    *   Creates a session in Redis/Postgres.
+    *   Sets a `HttpOnly; Secure; SameSite=Lax` cookie (`nexus_session`).
+    *   Redirects user to `https://nexus.pcnaid.com`.
 
-### Backend Responsibilities (Orchestrator)
-- **Prompt Engineering**: Dynamically assembles:
-  - System Instructions (Persona)
-  - **User Profile Summary** (from Mem0)
-  - **Relevant Memories** (from Mem0, filtered by query)
-  - **Document Snippets** (from txtai, Top-K)
-- **Persistence**: Transactions for Chat History + Memory updates.
+### 3. Routes & API Structure
+*   `GET /auth/me`: Returns user profile if session valid.
+*   `POST /chat/message`: Main entry point.
+    *   **Input**: Message content, attachment references, active persona ID.
+    *   **Process**:
+        1.  Auth Check (Session Middleware).
+        2.  **Mem0**: `m.add(message, user_id=uid)` (Async).
+        3.  **Mem0**: `m.search(message, user_id=uid)` -> Get relevant facts.
+        4.  **txtai**: HTTP POST `TXTAI_BASE_URL/search` -> Get doc chunks.
+        5.  **Gemini**: Construct prompt with Context + Memory + System Instruction.
+        6.  **Stream Response**: return Server-Sent Events (SSE) or JSON.
+*   `POST /storage/presign`:
+    *   **Input**: `{ filename, contentType, useCase: 'avatar'|'doc'|'media' }`
+    *   **Output**: `{ uploadUrl, publicUrl, r2Key }` (Pre-signed PUT URL for R2).
 
----
-
-## 2. API Endpoints Specification
-
-The `geminiService.ts` adapter consumes these endpoints:
-
-### Authentication
-- `POST /auth/google/start`: Initiate OAuth flow.
-- `POST /auth/google/callback`: Handle redirect and set session.
-- `POST /auth/logout`: clear cookies.
-- `GET /me`: Return `User` object and global settings.
-
-### Chat & Orchestration
-- `GET /conversations`: List threads by Project.
-- `GET /conversations/:id/messages`: specific history.
-- `POST /conversations/:id/messages`: **Main Interaction**.
-  - **Payload**: `{ content: string, attachments: Attachment[], activePersonaId: string, activeDocIds: string[] }`
-  - **Process**:
-    1. **Retrieve**: Parallel call to `mem0.search(user_id, query)` and `txtai.search(query, doc_ids)`.
-    2. **Assemble**: Construct context window.
-    3. **Generate**: Call Gemini.
-    4. **Store**: Async write to Mem0 (add_memory) and Postgres (messages).
-  - **Response**: `{ text: string, citations: Citation[], agreementProposal?: Agreement }`
-
-### Memory Management
-- `GET /memory/profile/:userId`: Get the "Pinned" facts Mem0 has inferred about the user.
-- `POST /memory/retrieve`: Debug endpoint to manually fetch memories for a query.
-
-### Documents (RAG)
-- `POST /docs/upload`: Request Signed URL (GCS) for file upload.
-- `POST /docs/ingest`: Trigger background indexing.
-  - **Logic**: Backend downloads file -> parses text -> chunks (500 tokens) -> `txtai` embeds -> `pgvector` insert.
-- `GET /docs/query`: Test semantic search.
-- `DELETE /docs/:id`: Remove file and associated vectors.
-
-### Calendar
-- `POST /calendar/connect`: Link Google account.
-- `POST /calendar/sync`: Force sync events to local DB.
-- `GET /calendar/events`: Fetch synced events.
+### 4. Security Strategy
+*   **CORS**: Allow Origins strictly set to `['https://nexus.pcnaid.com', 'http://localhost:3000']`.
+*   **Encryption at Rest**: All OAuth tokens and sensitive keys in DB are encrypted.
+*   **Zero Trust**: No ports opened on host. Cloudflare Tunnel handles ingress.
 
 ---
 
-## 3. RAG & Memory Logic
-
-### RAG Strategy (txtai + pgVector)
-- **Indexing**: Documents are split into overlapping chunks. txtai calculates embeddings.
-- **Storage**: Chunks stored in `document_chunks` table with a `vector(768)` column.
-- **Retrieval**: 
-  - Backend performs a hybrid search (Keyword + Vector).
-  - Returns **Top-K (e.g., 5)** chunks.
-  - Snippets are appended to the System Instruction with `[Source: DocName]` citations.
-
-### Memory Strategy (Mem0)
-- **Ingestion**: Every User/Assistant turn is sent to Mem0.
-- **Fact Extraction**: Mem0 analyzes the turn for long-term facts (e.g., "User prefers dark mode", "User is working on Project X").
-- **Retrieval**:
-  - **Profile**: A consolidated summary of the user (Role, preferences, key relationships).
-  - **Semantic Search**: Fetches past interactions relevant to the *current* prompt.
-- **Filtering**:
-  - PII Filters: Regex to redact emails/phones before storage.
-  - Category Filters: Exclude 'casual_chitchat' from long-term storage.
+## Deliverable B: Infrastructure (Docker Compose)
+(See `docker-compose.yml` for implementation).
+*   **Frontend**: Port 3000
+*   **Backend**: Port 3001
+*   **txtai**: Port 8000
+*   **Neo4j**: Port 7474 (and 7687 bolt)
+*   **Postgres**: Port 5432
 
 ---
 
-## 4. Database High-Level Tables
+## Deliverable C: High-Level Database Tables
 
-- **users**: `id, email, google_id, avatar, role`
-- **projects**: `id, name, description, theme, owner_id`
-- **conversations**: `id, project_id, created_at`
-- **messages**: `id, conversation_id, role, content, attachments (JSONB)`
-- **documents**: `id, project_id, name, gcs_path, status`
-- **document_chunks**: `id, document_id, content, embedding (VECTOR)`
-- **mem0_memories**: (Managed by Mem0, but mapped to `user_id`)
-- **calendar_events**: `id, project_id, title, start, end, google_event_id`
+1.  **Identity**:
+    *   `users`: id, email, name, avatar, created_at
+    *   `sessions`: id, user_id, expires_at, data (json)
+    *   `integrations`: user_id, provider ('google'), encrypted_access_token, encrypted_refresh_token
+
+2.  **Core Application**:
+    *   `workspaces`: id, name, slug
+    *   `projects`: id, workspace_id, name, description
+    *   `tasks`: id, project_id, title, status, priority, due_date
+    *   `agreements`: id, title, content, status, signatories (jsonb)
+
+3.  **AI & RAG**:
+    *   `memories` (Mem0): id, user_id, memory_text, embedding (vector), metadata
+    *   `documents`: id, project_id, r2_key, filename, mime_type, status
+    *   `document_chunks`: id, document_id, content, embedding (vector)
+    *   `messages`: id, project_id, user_id, role, content, attachments (jsonb)
+
+---
+
+## Deliverable D: Cloudflare Tunnel Configuration
+
+Execute this mapping in your Cloudflare Zero Trust Dashboard or `config.yml`:
+
+| Public Hostname | Service | Local URL |
+| :--- | :--- | :--- |
+| `nexus.pcnaid.com` | Frontend | `http://localhost:3000` |
+| `api.pcnaid.com` | Backend | `http://localhost:3001` |
+| `txtai.pcnaid.com` | txtai | `http://localhost:8000` |
+| `neo4j.pcnaid.com` | Neo4j | `http://localhost:7474` |
+| `mem0.pcnaid.com` | Mem0 (Debug) | `http://localhost:8888` (Optional) |
+
+---
+
+## Deliverable E: Migration Plan
+
+1.  **Environment Setup**:
+    *   Provision Cloudflare R2 Buckets (`nexus-docs`, `nexus-media`).
+    *   Create Google Cloud Project, configure OAuth Consent Screen, get Credentials.
+    *   Set `.env` variables on the Backend server.
+2.  **Backend Deployment**:
+    *   Deploy `docker-compose.yml`.
+    *   Run DB migrations (Create tables).
+3.  **Frontend Update**:
+    *   Switch `USE_MOCK_BACKEND = false` in `geminiService.ts`.
+    *   Deploy Frontend to generate static assets or run SSR.
+    *   Point `cloudflared` to the local ports.
+4.  **Data Migration**:
+    *   (Optional) If preserving prototype data, write a script to POST existing localStorage JSON to Backend API endpoints.
 

@@ -1,5 +1,5 @@
-
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
+import { useAuth0 } from '@auth0/auth0-react';
 import Sidebar from './components/Sidebar';
 import ChatArea from './components/ChatArea';
 import ProjectBoard from './components/ProjectBoard';
@@ -10,6 +10,7 @@ import AgentSettings from './components/AgentSettings';
 import UserSwitcher from './components/UserSwitcher';
 import AgreementsPage from './components/AgreementsPage';
 import OnboardingTour from './components/OnboardingTour';
+import LoginPage from './components/LoginPage';
 import { useRealTimeSync, SyncAction } from './hooks/useRealTimeSync';
 import { 
   MOCK_USERS, 
@@ -31,11 +32,15 @@ import {
 } from './types';
 
 function App() {
+  // Auth0 Hook
+  const { user: auth0User, isAuthenticated, isLoading } = useAuth0();
+
+  // App State
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [currentView, setCurrentView] = useState<View>(View.CHAT);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   
-  // State Management
-  const [currentUser, setCurrentUser] = useState<User>(MOCK_USERS[0]);
+  // Data State
   const [messages, setMessages] = useState<Message[]>([
     { id: '0', userId: 'gemini', role: 'model', content: 'Welcome to Nexus Workspace. I am ready to collaborate with your team. How can I assist you today?', timestamp: new Date() }
   ]);
@@ -48,6 +53,25 @@ function App() {
 
   // Collaboration State
   const [activeTypers, setActiveTypers] = useState<Map<string, string>>(new Map());
+
+  // --- AUTHENTICATION SYNC ---
+  useEffect(() => {
+    if (isAuthenticated && auth0User) {
+      // Map Auth0 user to Nexus User
+      // auth0User.sub is the unique user ID
+      // auth0User.email is the Gmail address (if using Google social connection)
+      const mappedUser: User = {
+        id: auth0User.sub || `user-${Date.now()}`,
+        name: auth0User.name || auth0User.email || 'User',
+        email: auth0User.email,
+        avatar: auth0User.picture || `https://ui-avatars.com/api/?name=${encodeURIComponent(auth0User.name || 'U')}`,
+        color: 'bg-blue-500' // could randomize based on ID
+      };
+      setCurrentUser(mappedUser);
+    } else if (!isLoading && !isAuthenticated) {
+      setCurrentUser(null);
+    }
+  }, [isAuthenticated, auth0User, isLoading]);
 
   // Handle incoming typing updates
   const handleRemoteTypingUpdate = useCallback((userId: string, name: string, isTyping: boolean) => {
@@ -118,6 +142,7 @@ function App() {
   };
 
   const handleNotify = (userId: string, text: string, type: 'mention' | 'assignment' | 'system') => {
+      if (!currentUser) return;
       const newNotif: Notification = {
           id: Date.now().toString(),
           userId,
@@ -131,6 +156,7 @@ function App() {
   };
 
   const broadcastTyping = (isTyping: boolean) => {
+    if (!currentUser) return;
     broadcast({ 
       type: 'TYPING_UPDATE', 
       payload: { userId: currentUser.id, name: currentUser.name, isTyping } 
@@ -138,6 +164,7 @@ function App() {
   };
 
   const handleAcceptAgreement = (title: string, content: string) => {
+    if (!currentUser) return;
     const newAgreement: Agreement = {
       id: Date.now().toString(),
       title: title,
@@ -149,10 +176,28 @@ function App() {
     handleSetAgreements(prev => [...prev, newAgreement]);
   };
 
+  if (isLoading) {
+    return (
+      <div className="h-screen bg-slate-50 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+          <p className="text-slate-500 font-medium">Connecting to Nexus Identity...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated || !currentUser) {
+    return <LoginPage />;
+  }
+
   const activePersona = personas.find(p => p.id === activePersonaId) || personas[0];
   const activeDocs = documents.filter(d => d.isActive);
   const activeAgreements = agreements.filter(a => a.status === 'active');
   const activeProject = projects.find(p => p.id === activeProjectId);
+
+  // Combine real currentUser with mock users for collaboration lists
+  const activeUsersList = [currentUser, ...MOCK_USERS.filter(u => u.id !== currentUser.id)];
 
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden font-sans">
@@ -188,8 +233,6 @@ function App() {
                 </div>
                 <UserSwitcher 
                     currentUser={currentUser} 
-                    allUsers={MOCK_USERS} 
-                    onSwitch={(id) => setCurrentUser(MOCK_USERS.find(u => u.id === id) || MOCK_USERS[0])} 
                 />
             </div>
             </div>
@@ -203,7 +246,7 @@ function App() {
               <ProjectWorkspace 
                   project={activeProject}
                   currentUser={currentUser}
-                  allUsers={MOCK_USERS}
+                  allUsers={activeUsersList}
                   personas={personas}
                   documents={documents}
                   agreements={agreements}
@@ -222,7 +265,7 @@ function App() {
                     currentUser={currentUser}
                     messages={messages}
                     setMessages={handleSetMessages}
-                    allUsers={MOCK_USERS}
+                    allUsers={activeUsersList}
                     activePersona={activePersona}
                     activeDocs={activeDocs}
                     activeAgreements={activeAgreements}
@@ -236,7 +279,7 @@ function App() {
                     <ProjectBoard 
                         projects={projects} 
                         setProjects={handleSetProjects}
-                        users={MOCK_USERS} 
+                        users={activeUsersList} 
                         onSelectProject={setActiveProjectId}
                     />
                 )}
@@ -253,7 +296,7 @@ function App() {
                     <AgreementsPage 
                         agreements={agreements} 
                         setAgreements={handleSetAgreements} 
-                        users={MOCK_USERS}
+                        users={activeUsersList}
                     />
                 )}
 

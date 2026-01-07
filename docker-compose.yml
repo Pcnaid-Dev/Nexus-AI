@@ -1,0 +1,109 @@
+
+version: '3.8'
+
+services:
+  # 1. Database (Postgres 16 + pgvector)
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: nexus_postgres
+    environment:
+      POSTGRES_USER: nexus_user
+      POSTGRES_PASSWORD: nexus_password
+      POSTGRES_DB: nexus_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    networks:
+      - nexus_net
+
+  # 2. Redis (Sessions & Queues)
+  redis:
+    image: redis:alpine
+    container_name: nexus_redis
+    ports:
+      - "6379:6379"
+    networks:
+      - nexus_net
+
+  # 3. Vector Search Engine (txtai)
+  # Maps to https://txtai.pcnaid.com
+  txtai:
+    image: neuzh/txtai:latest
+    container_name: nexus_txtai
+    ports:
+      - "8000:8000"
+    volumes:
+      - txtai_data:/data
+    networks:
+      - nexus_net
+
+  # 4. Graph Database (Neo4j) - Optional
+  # Maps to https://neo4j.pcnaid.com
+  neo4j:
+    image: neo4j:latest
+    container_name: nexus_neo4j
+    environment:
+      NEO4J_AUTH: neo4j/nexus_password
+    ports:
+      - "7474:7474" # HTTP
+      - "7687:7687" # Bolt
+    volumes:
+      - neo4j_data:/data
+    networks:
+      - nexus_net
+
+  # 5. Backend Orchestrator (FastAPI + Embedded Mem0)
+  # Maps to https://api.pcnaid.com
+  backend:
+    build: 
+      context: ./backend # Assumes python source is here
+      dockerfile: Dockerfile
+    container_name: nexus_backend
+    environment:
+      - PORT=3001
+      - DATABASE_URL=postgresql://nexus_user:nexus_password@postgres:5432/nexus_db
+      - REDIS_URL=redis://redis:6379/0
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - TXTAI_BASE_URL=http://txtai:8000
+      - FRONTEND_URL=https://nexus.pcnaid.com
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - SESSION_SECRET=${SESSION_SECRET}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      - R2_ENDPOINT=${R2_ENDPOINT}
+      - R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID}
+      - R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY}
+    ports:
+      - "3001:3001"
+    depends_on:
+      - postgres
+      - redis
+      - txtai
+    networks:
+      - nexus_net
+
+  # 6. Frontend (React)
+  # Maps to https://nexus.pcnaid.com
+  frontend:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: nexus_frontend
+    environment:
+      - REACT_APP_API_BASE_URL=https://api.pcnaid.com
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - nexus_net
+
+networks:
+  nexus_net:
+    driver: bridge
+
+volumes:
+  pg_data:
+  txtai_data:
+  neo4j_data:
