@@ -37,6 +37,7 @@ function App() {
 
   // App State
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isDevMode, setIsDevMode] = useState(false); // Flag to track manual skip
   const [currentView, setCurrentView] = useState<View>(View.CHAT);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   
@@ -68,10 +69,12 @@ function App() {
         color: 'bg-blue-500' // could randomize based on ID
       };
       setCurrentUser(mappedUser);
-    } else if (!isLoading && !isAuthenticated) {
+      setIsDevMode(false);
+    } else if (!isLoading && !isAuthenticated && !isDevMode) {
+      // Only set to null if we are not authenticated, not loading, AND not in dev mode.
       setCurrentUser(null);
     }
-  }, [isAuthenticated, auth0User, isLoading]);
+  }, [isAuthenticated, auth0User, isLoading, isDevMode]);
 
   // Handle incoming typing updates
   const handleRemoteTypingUpdate = useCallback((userId: string, name: string, isTyping: boolean) => {
@@ -187,8 +190,23 @@ function App() {
     );
   }
 
-  if (!isAuthenticated || !currentUser) {
-    return <LoginPage />;
+  // Allow skip logic: if we are not authenticated BUT we have a currentUser (set via Skip), we proceed.
+  if (!currentUser) {
+    // Edge case: if authenticated but mapping hasn't finished (currentUser is null), keep showing loading state instead of login page
+    if (isAuthenticated) {
+        return (
+            <div className="h-screen bg-slate-50 flex items-center justify-center">
+                <div className="flex flex-col items-center gap-4">
+                <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                <p className="text-slate-500 font-medium">Loading User Profile...</p>
+                </div>
+            </div>
+        );
+    }
+    return <LoginPage onSkip={() => {
+        setIsDevMode(true);
+        setCurrentUser(MOCK_USERS[0]);
+    }} />;
   }
 
   const activePersona = personas.find(p => p.id === activePersonaId) || personas[0];

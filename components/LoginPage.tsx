@@ -1,8 +1,12 @@
 import React from 'react';
 import { useAuth0 } from '@auth0/auth0-react';
-import { Hexagon, ShieldCheck, Zap, Globe } from 'lucide-react';
+import { Hexagon, ShieldCheck, Zap, Globe, SkipForward } from 'lucide-react';
 
-const LoginPage: React.FC = () => {
+interface LoginPageProps {
+  onSkip?: () => void;
+}
+
+const LoginPage: React.FC<LoginPageProps> = ({ onSkip }) => {
   const { loginWithRedirect } = useAuth0();
 
   return (
@@ -26,8 +30,9 @@ const LoginPage: React.FC = () => {
 
         <div className="space-y-6">
           <button 
+            type="button"
             onClick={() => loginWithRedirect()}
-            className="w-full bg-white text-slate-800 font-bold py-3.5 px-6 rounded-xl hover:bg-slate-50 transition-all transform hover:scale-[1.02] shadow-lg flex items-center justify-center space-x-3 group"
+            className="w-full bg-white text-slate-800 font-bold py-3.5 px-6 rounded-xl hover:bg-slate-50 transition-all transform hover:scale-[1.02] shadow-lg flex items-center justify-center space-x-3 group relative z-20"
           >
             <img 
               src="https://www.google.com/favicon.ico" 
@@ -37,11 +42,30 @@ const LoginPage: React.FC = () => {
             <span>Sign in with Google</span>
           </button>
 
+          {onSkip && (
+            <div className="relative pt-2">
+               <div className="absolute inset-0 flex items-center pointer-events-none">
+                 <div className="w-full border-t border-slate-700"></div>
+               </div>
+               <div className="relative flex justify-center text-sm pointer-events-none">
+                 <span className="px-2 bg-slate-800 text-slate-500">Development</span>
+               </div>
+               <button 
+                  type="button"
+                  onClick={onSkip}
+                  className="w-full mt-4 bg-slate-700 hover:bg-slate-600 text-slate-300 font-medium py-3 px-6 rounded-xl transition-all flex items-center justify-center space-x-2 border border-slate-600 relative z-20 cursor-pointer active:scale-95"
+               >
+                  <SkipForward className="w-4 h-4" />
+                  <span>Skip Login</span>
+               </button>
+            </div>
+          )}
+
           <div className="relative">
-            <div className="absolute inset-0 flex items-center">
+            <div className="absolute inset-0 flex items-center pointer-events-none">
               <div className="w-full border-t border-slate-700"></div>
             </div>
-            <div className="relative flex justify-center text-sm">
+            <div className="relative flex justify-center text-sm pointer-events-none">
               <span className="px-2 bg-transparent text-slate-500">Secure Access</span>
             </div>
           </div>
