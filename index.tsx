@@ -16,7 +16,7 @@ const root = ReactDOM.createRoot(rootElement);
 root.render(
   <React.StrictMode>
     <Auth0Provider
-      AUTH0_APP_DOMAIN="dev-ht1opj33lzf103ci.us.auth0.com"
+      AUTH0_APP_DOMAIN="nexus.pcnaid.com"
       AUTH0_CLIENT_ID="NeCOkSW3tJ6SdKHPpXgTvbCDdBirHeGR"
       AUTH0_CLIENT_SECRET="TfjytcvgInR4xIwq4sJYjdJAy-j6W_g3aXrgY54YPMOKPh6lSdCl52HshKIKUq9s"
       authorizationParams={{
