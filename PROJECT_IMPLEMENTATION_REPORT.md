@@ -1,140 +1,125 @@
-# Project Implementation Report
+
+# Project Implementation Report & Architecture Spec
 
 ## Executive Summary
-The Nexus Workspace AI application is currently a high-fidelity functional prototype. It features a fully responsive React frontend with five core modules: Team Chat, Project Dashboard, Calendar, Knowledge Base, and Agent Configuration. 
+The Nexus Workspace AI is transitioning from a client-side prototype to a robust **Backend-for-Frontend (BFF)** production architecture. 
 
-The application integrates with the **Google Gemini API** (`gemini-3-flash-preview`) for chat functionalities, context-aware responses (RAG simulation), and persona simulation. The Project Board has been enhanced with advanced features like Drag-and-Drop task management, filtering, and sorting. Currently, data persistence is handled via client-side state and mock constants, serving as a blueprint for a future backend implementation.
-
-## Features & Functionalities
-
-### Core Workspace
-- ✅ **Multi-View Sidebar Navigation**: Seamless switching between Chat, Projects, Calendar, Knowledge, and Settings.
-- ✅ **Multi-User Simulation**: `UserSwitcher` component allowing "hot-swapping" of active user identity to simulate team collaboration.
-- ✅ **Responsive Layout**: Tailwind CSS implementation for adaptive designs.
-
-### AI & Chat Module
-- ✅ **Gemini Integration**: Connection to `@google/genai` with API Key injection.
-- ✅ **Persona Management**: Ability to create, edit, and switch between different AI agents (e.g., "Tech Lead", "Creative Director").
-- ✅ **Context Injection**: System instructions are dynamically built based on the Active Persona, User Directory, and Active Documents.
-- ✅ **Chat Interface**: Bubble layout distinguishing between 'user' (left/right based on identity) and 'model' (bot).
-
-### Project Management (ProjectBoard)
-- ✅ **Kanban/Grid View**: Visualization of projects and their constituent tasks.
-- ✅ **Task Filtering**: Filter tasks by Status (Todo, In-Progress, Done) and Assignee.
-- ✅ **Task Sorting**: Sort by Creation Date, Due Date, or Manual ordering.
-- ✅ **Drag and Drop**: 
-  - **Reordering**: Move tasks within a column.
-  - **Status Change**: Drag tasks between status columns.
-  - **Project Transfer**: Drag tasks from one project to another.
-- ✅ **Task Assignment**: Assign users via dropdown on creation or via quick-switch on task cards.
-- ✅ **Visual Indicators**: Color-coded badges for due dates and status icons.
-
-### Knowledge Base (RAG)
-- ✅ **Document Management UI**: Interface to upload and list documents.
-- ✅ **Context Toggling**: Ability to activate/deactivate specific documents for the AI context window.
-- ✅ **RAG Simulation**: `geminiService.ts` concatenates active document content into the system prompt (Client-side RAG).
-
-### Calendar & Scheduling
-- ✅ **Calendar UI**: Visual representation of a monthly view and daily timeline.
-- ✅ **Event Rendering**: Mock events displayed with time and type (Meeting/Deadline).
-- [ ] **Google Calendar API Integration**: Button exists, but OAuth/API connection is pending.
+**Core Infrastructure Changes:**
+1.  **Memory Layer**: **Mem0 (OpenMemory)** integration for persistent user profiling, fact extraction, and cross-session memory retrieval.
+2.  **RAG Layer**: **txtai** implementation for semantic document search, indexing into **Postgres + pgVector**.
+3.  **Storage**: **Google Cloud SQL (Postgres)** for relational data (Projects, Tasks) and vector storage.
+4.  **Orchestration**: A Node.js/Python backend now handles prompt assembly, removing full-text document injection from the frontend.
 
 ---
 
-## Standard API Adapter Interface
+## 1. Production Code Architecture
 
-### AI Service (`services/geminiService.ts`)
-- ✅ `generateResponse(history, currentUser, activePersona, activeDocs, allUsers)`: Main chat completion method.
-- ✅ `generateTaskAnalysis(projectDescription)`: Helper to extract structured tasks from text (JSON mode).
+### Data Flow
+```mermaid
+graph TD
+    Client[React Frontend] -->|REST / API| Orchestrator[Backend API]
+    
+    subgraph "Storage & Indexing"
+        Orchestrator -->|Relational Data| PG[Postgres (Cloud SQL)]
+        Orchestrator -->|Vector Search| Txtai[txtai Service]
+        Txtai -->|Embeddings| PGVector[pgVector Extension]
+    end
+    
+    subgraph "Cognitive Services"
+        Orchestrator -->|LLM Generation| Gemini[Google Gemini API]
+        Orchestrator -->|Long-term Memory| Mem0[Mem0 / OpenMemory]
+    end
+    
+    subgraph "External"
+        Orchestrator -->|OAuth/Events| Google[Google Workspace API]
+    end
+```
 
-### Data Persistence (Future)
-- [ ] `UserService`: Auth and user profile fetching.
-- [ ] `ProjectService`: CRUD operations for Projects and Tasks.
-- [ ] `DocumentService`: Vector database operations for real RAG (Embeddings generation and retrieval).
-- [ ] `CalendarService`: 3rd party integrations (Google/Outlook).
+### Frontend Responsibilities (Updated)
+- **Zero-Knowledge RAG**: The frontend sends *Document IDs*, not document content.
+- **Session Management**: Uses HTTP-only cookies managed by the Backend via `/auth` endpoints.
+- **Data Adapter**: `geminiService.ts` acts as the API Client, normalizing backend responses for the UI.
 
----
-
-## Adapter-to-UI Mappings
-
-### State Management (App.tsx)
-- ✅ **User State**: `currentUser` maps to `MOCK_USERS`.
-- ✅ **Chat State**: `messages` array maps to `ChatArea` prop `messages`.
-- ✅ **Project State**: `projects` array maps to `ProjectBoard` prop `projects`. **Note: State updates handle deep merging for DnD operations.**
-- ✅ **Document State**: `documents` array maps to `KnowledgeBase` and filtered `activeDocs` are passed to `geminiService`.
-- ✅ **Persona State**: `personas` array maps to `AgentSettings` and `activePersonaId` controls the System Instruction.
-
----
-
-## Minimal Database Schema
-
-### Users Collection
-- ✅ `id` (string): Unique identifier.
-- ✅ `name` (string): Display name.
-- ✅ `avatar` (string): URL to profile image.
-- ✅ `color` (string): UI theme color.
-
-### Projects Collection
-- ✅ `id` (string): Unique identifier.
-- ✅ `name` (string): Project title.
-- ✅ `description` (string): Short summary.
-- ✅ `status` (enum): 'active' | 'archived'.
-- ✅ `tasks` (Array<Task>): Embedded list of tasks.
-  - ✅ `id` (string)
-  - ✅ `title` (string)
-  - ✅ `status` (enum): 'todo' | 'in-progress' | 'done'
-  - ✅ `assigneeId` (string | undefined): Reference to User.id.
-  - ✅ `dueDate` (Date | undefined)
-  - ✅ `createdAt` (Date): **Added for sorting.**
-
-### Documents Collection
-- ✅ `id` (string): Unique identifier.
-- ✅ `name` (string): Filename.
-- ✅ `content` (string): Raw text content (for simple context injection).
-- [ ] `embedding` (vector): **Pending for Vector DB implementation.**
-- ✅ `source` (enum): 'upload' | 'gdrive' | 'external'.
-- ✅ `isActive` (boolean): Toggle for inclusion in context.
-
-### Personas Collection
-- ✅ `id` (string): Unique identifier.
-- ✅ `name` (string): Agent display name.
-- ✅ `description` (string): UI description.
-- ✅ `systemInstruction` (string): Core prompt instructions.
-- ✅ `tone` (string): Stylistic guidance.
+### Backend Responsibilities (Orchestrator)
+- **Prompt Engineering**: Dynamically assembles:
+  - System Instructions (Persona)
+  - **User Profile Summary** (from Mem0)
+  - **Relevant Memories** (from Mem0, filtered by query)
+  - **Document Snippets** (from txtai, Top-K)
+- **Persistence**: Transactions for Chat History + Memory updates.
 
 ---
 
-## Component Inventory
+## 2. API Endpoints Specification
 
-### Layout Components
-- ✅ `Sidebar`: Main navigation.
-- ✅ `App`: Main layout container and State Orchestrator.
+The `geminiService.ts` adapter consumes these endpoints:
 
-### Feature Components
-- ✅ `ChatArea`:
-  - Message List rendering.
-  - Input area with attachment UI.
-  - Typing indicators.
-- ✅ `ProjectBoard`:
-  - Top bar controls (Filter/Sort).
-  - Project Cards.
-  - Task Columns (Todo/In-Progress/Done).
-  - Task Cards (Draggable).
-- ✅ `CalendarView`:
-  - Mini Calendar (Day picker).
-  - Event List.
-  - Daily Timeline View.
-- ✅ `KnowledgeBase`:
-  - Stats overview.
-  - Document List with toggles.
-  - Upload button simulation.
-- ✅ `AgentSettings`:
-  - Persona Grid.
-  - Edit/Create forms.
-- ✅ `UserSwitcher`:
-  - Dropdown mechanism for changing current user identity.
+### Authentication
+- `POST /auth/google/start`: Initiate OAuth flow.
+- `POST /auth/google/callback`: Handle redirect and set session.
+- `POST /auth/logout`: clear cookies.
+- `GET /me`: Return `User` object and global settings.
 
-### Utilities
-- ✅ `types.ts`: TypeScript interfaces.
-- ✅ `constants.ts`: Mock data seed.
-- ✅ `lucide-react`: Icon set integration.
+### Chat & Orchestration
+- `GET /conversations`: List threads by Project.
+- `GET /conversations/:id/messages`: specific history.
+- `POST /conversations/:id/messages`: **Main Interaction**.
+  - **Payload**: `{ content: string, attachments: Attachment[], activePersonaId: string, activeDocIds: string[] }`
+  - **Process**:
+    1. **Retrieve**: Parallel call to `mem0.search(user_id, query)` and `txtai.search(query, doc_ids)`.
+    2. **Assemble**: Construct context window.
+    3. **Generate**: Call Gemini.
+    4. **Store**: Async write to Mem0 (add_memory) and Postgres (messages).
+  - **Response**: `{ text: string, citations: Citation[], agreementProposal?: Agreement }`
+
+### Memory Management
+- `GET /memory/profile/:userId`: Get the "Pinned" facts Mem0 has inferred about the user.
+- `POST /memory/retrieve`: Debug endpoint to manually fetch memories for a query.
+
+### Documents (RAG)
+- `POST /docs/upload`: Request Signed URL (GCS) for file upload.
+- `POST /docs/ingest`: Trigger background indexing.
+  - **Logic**: Backend downloads file -> parses text -> chunks (500 tokens) -> `txtai` embeds -> `pgvector` insert.
+- `GET /docs/query`: Test semantic search.
+- `DELETE /docs/:id`: Remove file and associated vectors.
+
+### Calendar
+- `POST /calendar/connect`: Link Google account.
+- `POST /calendar/sync`: Force sync events to local DB.
+- `GET /calendar/events`: Fetch synced events.
+
+---
+
+## 3. RAG & Memory Logic
+
+### RAG Strategy (txtai + pgVector)
+- **Indexing**: Documents are split into overlapping chunks. txtai calculates embeddings.
+- **Storage**: Chunks stored in `document_chunks` table with a `vector(768)` column.
+- **Retrieval**: 
+  - Backend performs a hybrid search (Keyword + Vector).
+  - Returns **Top-K (e.g., 5)** chunks.
+  - Snippets are appended to the System Instruction with `[Source: DocName]` citations.
+
+### Memory Strategy (Mem0)
+- **Ingestion**: Every User/Assistant turn is sent to Mem0.
+- **Fact Extraction**: Mem0 analyzes the turn for long-term facts (e.g., "User prefers dark mode", "User is working on Project X").
+- **Retrieval**:
+  - **Profile**: A consolidated summary of the user (Role, preferences, key relationships).
+  - **Semantic Search**: Fetches past interactions relevant to the *current* prompt.
+- **Filtering**:
+  - PII Filters: Regex to redact emails/phones before storage.
+  - Category Filters: Exclude 'casual_chitchat' from long-term storage.
+
+---
+
+## 4. Database High-Level Tables
+
+- **users**: `id, email, google_id, avatar, role`
+- **projects**: `id, name, description, theme, owner_id`
+- **conversations**: `id, project_id, created_at`
+- **messages**: `id, conversation_id, role, content, attachments (JSONB)`
+- **documents**: `id, project_id, name, gcs_path, status`
+- **document_chunks**: `id, document_id, content, embedding (VECTOR)`
+- **mem0_memories**: (Managed by Mem0, but mapped to `user_id`)
+- **calendar_events**: `id, project_id, title, start, end, google_event_id`
+

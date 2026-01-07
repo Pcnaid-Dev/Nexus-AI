@@ -1,20 +1,23 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { User } from '../types';
-import { Users, ChevronDown } from 'lucide-react';
+import { ChevronDown, Settings, LogOut, User as UserIcon } from 'lucide-react';
 
 interface UserSwitcherProps {
   currentUser: User;
-  allUsers: User[];
-  onSwitch: (userId: string) => void;
+  allUsers?: User[]; // Kept for compatibility but unused
+  onSwitch?: (userId: string) => void; // Kept for compatibility but unused
 }
 
-const UserSwitcher: React.FC<UserSwitcherProps> = ({ currentUser, allUsers, onSwitch }) => {
-  const [isOpen, setIsOpen] = React.useState(false);
+const UserSwitcher: React.FC<UserSwitcherProps> = ({ currentUser }) => {
+  const [isOpen, setIsOpen] = useState(false);
 
   return (
-    <div className="relative z-50">
+    <div 
+      className="relative z-50"
+      onMouseEnter={() => setIsOpen(true)}
+      onMouseLeave={() => setIsOpen(false)}
+    >
       <button 
-        onClick={() => setIsOpen(!isOpen)}
         className="flex items-center space-x-3 px-3 py-2 bg-slate-800 rounded-lg hover:bg-slate-700 transition-colors border border-slate-700"
       >
         <div className="relative">
@@ -25,41 +28,44 @@ const UserSwitcher: React.FC<UserSwitcherProps> = ({ currentUser, allUsers, onSw
           <p className="text-xs text-slate-400 font-medium">Logged in as</p>
           <p className="text-sm font-semibold text-white">{currentUser.name}</p>
         </div>
-        <ChevronDown className="w-4 h-4 text-slate-400" />
+        <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
       {isOpen && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)}></div>
-          <div className="absolute right-0 mt-2 w-64 bg-slate-900 border border-slate-700 rounded-xl shadow-xl overflow-hidden z-50">
+        <div className="absolute right-0 top-full mt-2 w-56 bg-slate-900 border border-slate-700 rounded-xl shadow-xl overflow-hidden z-50 animate-in fade-in slide-in-from-top-2 duration-200">
             <div className="p-3 bg-slate-800 border-b border-slate-700">
-               <h4 className="text-xs font-bold text-slate-400 uppercase flex items-center">
-                 <Users className="w-3 h-3 mr-2" />
-                 Switch User (Demo)
-               </h4>
+               <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 rounded-full bg-slate-700 flex items-center justify-center text-slate-300">
+                     <UserIcon className="w-6 h-6" />
+                  </div>
+                  <div>
+                      <p className="text-sm font-bold text-white">{currentUser.name}</p>
+                      <p className="text-xs text-slate-400">user@nexus.ai</p>
+                  </div>
+               </div>
             </div>
+            
             <div className="p-2 space-y-1">
-              {allUsers.map(user => (
-                <button
-                  key={user.id}
-                  onClick={() => {
-                    onSwitch(user.id);
-                    setIsOpen(false);
-                  }}
-                  className={`w-full flex items-center space-x-3 p-2 rounded-lg transition-colors
-                    ${user.id === currentUser.id ? 'bg-blue-600/20 text-blue-400' : 'text-slate-300 hover:bg-slate-800'}`}
+              <button className="w-full flex items-center space-x-3 px-3 py-2 text-slate-300 hover:bg-slate-800 rounded-lg transition-colors text-sm">
+                 <UserIcon className="w-4 h-4" />
+                 <span>My Profile</span>
+              </button>
+              <button className="w-full flex items-center space-x-3 px-3 py-2 text-slate-300 hover:bg-slate-800 rounded-lg transition-colors text-sm">
+                 <Settings className="w-4 h-4" />
+                 <span>Settings</span>
+              </button>
+            </div>
+
+            <div className="p-2 border-t border-slate-800">
+                <button 
+                    onClick={() => console.log('Log out clicked')}
+                    className="w-full flex items-center space-x-3 px-3 py-2 text-red-400 hover:bg-red-500/10 rounded-lg transition-colors text-sm"
                 >
-                  <img src={user.avatar} className="w-8 h-8 rounded-full" alt={user.name} />
-                  <span className="text-sm font-medium">{user.name}</span>
-                  {user.id === currentUser.id && <div className="ml-auto w-2 h-2 rounded-full bg-blue-500"></div>}
+                    <LogOut className="w-4 h-4" />
+                    <span>Log Out</span>
                 </button>
-              ))}
             </div>
-            <div className="p-3 bg-slate-950 text-[10px] text-slate-500">
-                This feature simulates multiple users in the same chat session.
-            </div>
-          </div>
-        </>
+        </div>
       )}
     </div>
   );

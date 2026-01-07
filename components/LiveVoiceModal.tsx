@@ -37,7 +37,9 @@ const LiveVoiceModal: React.FC<LiveVoiceModalProps> = ({ isOpen, onClose, system
     } else {
       stopSession();
     }
-    return () => stopSession();
+    return () => {
+        stopSession();
+    };
   }, [isOpen]);
 
   const startSession = async () => {
@@ -149,12 +151,30 @@ const LiveVoiceModal: React.FC<LiveVoiceModalProps> = ({ isOpen, onClose, system
   const stopSession = () => {
     if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
     }
-    if (inputAudioContextRef.current) inputAudioContextRef.current.close();
-    if (outputAudioContextRef.current) outputAudioContextRef.current.close();
     
-    // Close live session if possible (wrapper doesn't expose close directly on promise, but typically handled by connection drop)
-    // In real app, we'd keep reference to session and call close()
+    if (inputAudioContextRef.current) {
+        if (inputAudioContextRef.current.state !== 'closed') {
+            inputAudioContextRef.current.close();
+        }
+        inputAudioContextRef.current = null;
+    }
+
+    if (outputAudioContextRef.current) {
+        if (outputAudioContextRef.current.state !== 'closed') {
+            outputAudioContextRef.current.close();
+        }
+        outputAudioContextRef.current = null;
+    }
+    
+    // Reset other refs
+    processorRef.current = null;
+    sourceRef.current = null;
+    sourcesRef.current.forEach(s => {
+        try { s.stop(); } catch(e) {}
+    });
+    sourcesRef.current.clear();
     
     setStatus('disconnected');
     setVolumeLevel(0);

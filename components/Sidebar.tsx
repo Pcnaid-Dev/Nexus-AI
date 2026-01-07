@@ -1,6 +1,7 @@
+
 import React from 'react';
 import { View } from '../types';
-import { MessageSquare, Layout, Calendar, Book, Settings, Hexagon } from 'lucide-react';
+import { MessageSquare, Layout, Calendar, Book, Settings, Hexagon, FileSignature } from 'lucide-react';
 
 interface SidebarProps {
   currentView: View;
@@ -12,6 +13,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange }) => {
     { view: View.CHAT, icon: MessageSquare, label: 'Team Chat' },
     { view: View.PROJECTS, icon: Layout, label: 'Projects' },
     { view: View.CALENDAR, icon: Calendar, label: 'Calendar' },
+    { view: View.AGREEMENTS, icon: FileSignature, label: 'Agreements' },
     { view: View.KNOWLEDGE, icon: Book, label: 'Knowledge Base' },
     { view: View.SETTINGS, icon: Settings, label: 'Agents & Settings' },
   ];
